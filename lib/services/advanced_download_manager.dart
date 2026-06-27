@@ -47,6 +47,9 @@ class AdvancedDownloadManager extends ChangeNotifier {
   // تتبع السرعة لكل مهمة
   final Map<String, _SpeedTracker> _speedTrackers = {};
 
+  // خريطة روابط التحميل الفعلية (taskId → downloadUrl)
+  final Map<String, String> _downloadUrls = {};
+
   // الإحصائيات الذكية
   int _totalBytesToday = 0;
   DateTime _todayDate = DateTime.now();
@@ -191,6 +194,11 @@ class AdvancedDownloadManager extends ChangeNotifier {
       scheduledAt: scheduledAt,
     );
 
+    // حفظ رابط التحميل الفعلي إذا تم توفيره
+    if (downloadUrl.isNotEmpty) {
+      _downloadUrls[task.id] = downloadUrl;
+    }
+
     await _tasksBox!.put(task.id, task);
 
     if (scheduledAt != null) {
@@ -264,34 +272,57 @@ class AdvancedDownloadManager extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Simulated download - في الإنتاج يُستبدل بتحميل Dio حقيقي:
-      // await _dio.download(downloadUrl, filePath, onReceiveProgress: (received, total) {
-      //   _handleProgressUpdate(task.id, received, total);
-      // }, cancelToken: cancelToken);
-      final totalBytes = (Random().nextInt(50000000) + 5000000);
-      const totalSteps = 100;
+      // ═══ تحميل Dio حقيقي ═══
+      final actualDownloadUrl = _downloadUrls[task.id] ?? task.url;
 
-      for (int i = 1; i <= totalSteps; i++) {
-        if (cancelToken.isCancelled) break;
-        await Future.delayed(const Duration(milliseconds: 80));
-        receivedBytes = (i / totalSteps * totalBytes).toInt();
-        _handleProgressUpdate(task.id, receivedBytes, totalBytes);
+      if (actualDownloadUrl.isEmpty || !actualDownloadUrl.startsWith('http')) {
+        throw Exception('رابط التحميل غير صالح');
+      }
 
-        if (i >= totalSteps) {
-          await _completeDownload(task.id, filePath, totalBytes);
-          break;
-        }
+      debugPrint('[Download] بدء التحميل الحقيقي من: ${actualDownloadUrl.substring(0, actualDownloadUrl.length.clamp(0, 80))}...');
+
+      await _dio.download(
+        actualDownloadUrl,
+        filePath,
+        onReceiveProgress: (received, total) {
+          _handleProgressUpdate(task.id, received, total);
+        },
+        cancelToken: cancelToken,
+        options: Options(
+          followRedirects: true,
+          maxRedirects: 5,
+          receiveTimeout: const Duration(minutes: 10),
+          headers: {
+            'User-Agent': 'VidGrab/4.0 (Android)',
+          },
+        ),
+      );
+
+      // التحقق من الملف المحمّل
+      final file = File(filePath);
+      if (await file.exists()) {
+        final fileSize = await file.length();
+        await _completeDownload(task.id, filePath, fileSize);
+      } else {
+        throw Exception('فشل حفظ الملف');
       }
     } catch (e) {
       if (e is DioException && CancelToken.isCancel(e)) {
         _updateTaskStatus(task.id, 6); // cancelled
+        _downloadUrls.remove(task.id); // تنظيف عند الإلغاء
       } else {
+        // لا نحذف رابط التحميل هنا - قد نحتاجه لإعادة المحاولة
         _handleDownloadError(task.id, e);
       }
     } finally {
       _progressTimer?.cancel();
       _cancelTokens.remove(task.id);
       _speedTrackers.remove(task.id);
+      // نحذف رابط التحميل فقط إذا انتهت المهمة (نجاح/إلغاء/فشل نهائي)
+      final task = _tasksBox!.get(task.id);
+      final isFinal = task == null || task.status == 3 || task.status == 6 || 
+                      (task.status == 4);
+      if (isFinal) _downloadUrls.remove(task.id);
       _activeDownloads.remove(task.id);
       _processQueue();
       notifyListeners();

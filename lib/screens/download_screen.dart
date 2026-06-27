@@ -195,6 +195,19 @@ class _DownloadScreenState extends State<DownloadScreen> with TickerProviderStat
   void _download() {
     if (_videoInfo == null || _selectedQuality == null) return;
 
+    // التحقق من وجود رابط تحميل
+    if (_selectedQuality!.downloadUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('رابط التحميل غير متاح. حاول مرة أخرى.', style: TextStyle(color: Colors.white)),
+          backgroundColor: AppTheme.errorRed,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+      return;
+    }
+
     final manager = Provider.of<AdvancedDownloadManager>(context, listen: false);
 
     manager.addDownload(
@@ -203,6 +216,7 @@ class _DownloadScreenState extends State<DownloadScreen> with TickerProviderStat
       platform: _videoInfo!.platform.name,
       quality: _selectedQuality!.resolution,
       format: _selectedQuality!.format,
+      downloadUrl: _selectedQuality!.downloadUrl, // ← رابط التحميل الفعلي
     );
 
     ScaffoldMessenger.of(context).showSnackBar(

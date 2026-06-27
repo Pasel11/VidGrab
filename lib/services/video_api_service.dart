@@ -4,11 +4,14 @@ import 'package:flutter/foundation.dart';
 import '../models/video_info.dart';
 import 'platform_detector.dart';
 
-/// خدمة جلب معلومات الفيديو الحقيقية من API
-/// تدعم: Cobalt API + Backend yt-dlp
+/// خدمة جلب معلومات الفيديو الحقيقية من APIs متعددة
+/// تدعم: Cobalt API v7+ + Backend yt-dlp + APIs بديلة
 class VideoApiService {
-  static const String _cobaltApiUrl = 'https://api.cobalt.tools/api/json';
-  
+  /// قائمة خوادم Cobalt العامة (fallback)
+  static const List<String> _cobaltInstances = [
+    'https://api.cobalt.tools',
+  ];
+
   /// رابط الباكيند الخاص (عدّله لرابط سيرفرك)
   /// مثال: 'https://your-server.com/api'
   static String backendBaseUrl = '';
@@ -18,98 +21,202 @@ class VideoApiService {
 
   VideoApiService({Dio? dio, PlatformDetector? detector})
       : _dio = dio ?? Dio(BaseOptions(
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+          connectTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 45),
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'VidGrab/4.0 (Android)',
+          },
         )),
         _detector = detector ?? PlatformDetector();
 
-  /// جلب معلومات الفيديو الحقيقية
+  /// جلب معلومات الفيديو الحقيقية - يجرب عدة APIs
   Future<VideoInfo?> fetchVideoInfo(String url) async {
-    try {
-      // محاولة الباكيند أولاً إذا تم تعيينه
-      if (backendBaseUrl.isNotEmpty) {
-        try {
-          return await _fetchFromBackend(url);
-        } catch (e) {
-          debugPrint('[VideoAPI] Backend failed: $e, trying Cobalt...');
-        }
+    // محاولة الباكيند أولاً إذا تم تعيينه
+    if (backendBaseUrl.isNotEmpty) {
+      try {
+        debugPrint('[VideoAPI] جاري المحاولة من الباكيند...');
+        return await _fetchFromBackend(url);
+      } catch (e) {
+        debugPrint('[VideoAPI] Backend فشل: $e, جاري تجربة Cobalt...');
       }
-
-      // استخدام Cobalt API كـ fallback
-      return await _fetchFromCobalt(url);
-    } on DioException catch (e) {
-      debugPrint('[VideoAPI] Network error: ${e.message}');
-      throw Exception('خطأ في الاتصال بالخادم: ${e.message}');
-    } catch (e) {
-      debugPrint('[VideoAPI] Error: $e');
-      rethrow;
     }
+
+    // تجربة خوادم Cobalt بالترتيب
+    for (final instance in _cobaltInstances) {
+      try {
+        debugPrint('[VideoAPI] جاري المحاولة من: $instance');
+        final result = await _fetchFromCobalt(url, instance);
+        if (result != null) return result;
+      } catch (e) {
+        debugPrint('[VideoAPI] $instance فشل: $e');
+      }
+    }
+
+    throw Exception('لم يتم العثور على فيديو. تأكد أن الرابط صحيح وأن المنصة مدعومة.');
   }
 
-  /// ─── Cobalt API (مجاني، بدون تسجيل) ───
-  Future<VideoInfo?> _fetchFromCobalt(String url) async {
+  /// ─── Cobalt API v7+ ───
+  Future<VideoInfo?> _fetchFromCobalt(String url, String instance) async {
     final platform = _detector.detectPlatform(url);
+    final analysis = _detector.analyzeUrl(url);
 
-    // جلب معلومات الفيديو
+    // تحديد جودة الفيديو
+    String videoQuality = '1080';
+    if (platform == VideoPlatform.youtube) {
+      videoQuality = '1080';
+    }
+
+    // تحديد نوع التحميل
+    String downloadMode = 'auto'; // auto | audio | mute
+    bool isAudioOnly = analysis.isAudioOnly || platform.isAudioPlatform;
+    if (isAudioOnly) {
+      downloadMode = 'audio';
+    }
+
+    final requestBody = {
+      'url': url,
+      'videoQuality': videoQuality,
+      'downloadMode': downloadMode,
+      'audioFormat': 'mp3',
+      'filenameStyle': 'basic',
+    };
+
+    debugPrint('[VideoAPI] طلب Cobalt: $requestBody');
+
     final response = await _dio.post(
-      _cobaltApiUrl,
-      data: {
-        'url': url,
-        'vCodec': 'h264',
-        'vQuality': '1080',
-        'aFormat': 'mp3',
-        'isAudioOnly': false,
-        'filenamePattern': 'basic',
-      },
+      '$instance/',
+      data: requestBody,
       options: Options(
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
+        validateStatus: (status) => status != null && status < 500,
       ),
     );
 
-    final data = response.data;
+    debugPrint('[VideoAPI] استجابة Cobalt: ${response.statusCode} - ${response.data}');
 
-    // Cobalt يرجع رابط التحميل المباشر أو معلومات الفيديو
-    if (data == null) throw Exception('لم يتم العثور على فيديو');
-
-    // معالجة الاستجابة
-    String? downloadUrl;
-    String title = '';
-    String thumbnail = '';
-    String? audioUrl;
-
-    if (data is Map<String, dynamic>) {
-      downloadUrl = data['url'] as String?;
-      audioUrl = data['audioUrl'] as String?;
-      title = data['filename'] as String? ?? 
-               data['title'] as String? ?? 
-               'فيديو من ${platform.name}';
-      thumbnail = '';
+    // فحص حالة الاستجابة
+    if (response.statusCode == 429) {
+      throw Exception('طلبات كثيرة، انتظر قليلاً');
     }
 
-    // إذا لم نحصل على عنوان، نستخدم عنوان عام
-    if (title.isEmpty || title == 'NA') {
+    if (response.statusCode == 400 || response.statusCode == 401) {
+      // قد يحتاج API key - نحاول بدون
+      final data = response.data;
+      if (data is Map && data['error'] != null) {
+        throw Exception('الخادم رفض الطلب: ${data['error']}');
+      }
+      throw Exception('الخادم رفض الطلب. حاول مرة أخرى.');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception('خطأ في الخادم: ${response.statusCode}');
+    }
+
+    final data = response.data;
+    if (data == null) throw Exception('لم يتم العثور على فيديو');
+
+    return _parseCobaltResponse(data, url, platform, analysis);
+  }
+
+  /// تحليل استجابة Cobalt v7+
+  VideoInfo? _parseCobaltResponse(
+    dynamic data,
+    String originalUrl,
+    VideoPlatform platform,
+    dynamic analysis,
+  ) {
+    String? downloadUrl;
+    String? audioUrl;
+    String title = '';
+    String thumbnail = '';
+    String? filename;
+
+    if (data is! Map<String, dynamic>) {
+      throw Exception('صيغة استجابة غير صحيحة');
+    }
+
+    final status = data['status'] as String?;
+
+    // حالة الخطأ
+    if (status == 'error') {
+      final errorCode = data['error'] as? {
+        'code': dynamic,
+        'context': dynamic,
+      };
+      final code = errorCode?['code'] ?? 'unknown';
+      debugPrint('[VideoAPI] Cobalt error: $code');
+      
+      if (code == 'content.video.unavailable') {
+        throw Exception('الفيديو غير متاح أو محذوف');
+      }
+      if (code == 'content.post.unavailable') {
+        throw Exception('المنشور غير متاح');
+      }
+      if (code == 'link.not_supported') {
+        throw Exception('هذه المنصة غير مدعومة حالياً');
+      }
+      throw Exception('لم يتم العثور على فيديو في هذا الرابط');
+    }
+
+    // حالة picker (صور/فيديوهات متعددة)
+    if (status == 'picker') {
+      final picker = data['picker'] as List<dynamic>?;
+      if (picker != null && picker.isNotEmpty) {
+        final first = picker[0] as Map<String, dynamic>;
+        downloadUrl = first['url'] as String?;
+        if (downloadUrl == null && picker.length > 1) {
+          downloadUrl = (picker[1] as Map<String, dynamic>)['url'] as String?;
+        }
+        filename = first['filename'] as String?;
+      }
+    }
+
+    // حالة redirect أو tunnel (رابط مباشر)
+    if (status == 'redirect' || status == 'tunnel') {
+      downloadUrl = data['url'] as String?;
+    }
+
+    // استخراج المعلومات
+    filename = filename ?? data['filename'] as String?;
+    audioUrl = data['audio'] as String?;
+
+    // بناء العنوان
+    if (filename != null && filename.isNotEmpty && filename != 'NA') {
+      // إزالة امتداد الملف من العنوان
+      title = filename.replaceAll(RegExp(r'\.[^.]+$'), '');
+    }
+    if (title.isEmpty) {
       title = 'فيديو من ${platform.name}';
     }
 
+    // استخراج الصورة المصغرة
+    thumbnail = data['thumbnail'] as String? ?? '';
+
     // تحليل نوع المحتوى
-    String contentType = 'video';
-    if (_detector.analyzeUrl(url).isAudioOnly) {
+    String contentType = analysis is UrlAnalysisResult ? analysis.contentType : 'video';
+    if (isAudioOnlyPlatform(platform)) {
       contentType = 'audio';
     }
 
-    // بناء قائمة الجودات المتاحة
+    // بناء قائمة الجودات
     final qualities = _buildQualities(
       downloadUrl: downloadUrl,
       audioUrl: audioUrl,
       platform: platform,
+      cobaltData: data,
     );
 
+    if (qualities.isEmpty) {
+      throw Exception('لم يتم العثور على روابط تحميل صالحة');
+    }
+
     return VideoInfo(
-      url: url,
+      url: originalUrl,
       platform: platform,
       title: title,
       thumbnailUrl: thumbnail,
@@ -118,6 +225,10 @@ class VideoApiService {
       availableQualities: qualities,
       description: 'فيديو من ${platform.name}',
     );
+  }
+
+  bool isAudioOnlyPlatform(VideoPlatform platform) {
+    return platform == VideoPlatform.soundcloud;
   }
 
   /// ─── Backend yt-dlp API ───
@@ -130,7 +241,6 @@ class VideoApiService {
     final data = response.data as Map<String, dynamic>;
     final platform = _detector.detectPlatform(url);
 
-    // تحليل الجودات من الباكيند
     final formats = data['formats'] as List<dynamic>? ?? [];
     final qualities = formats.map((f) {
       final format = f as Map<String, dynamic>;
@@ -138,21 +248,20 @@ class VideoApiService {
         label: format['label'] ?? format['format'] ?? '',
         resolution: format['resolution'] ?? format['height']?.toString() ?? '',
         format: format['ext'] ?? 'mp4',
-        fileSize: format['filesize'] != null 
-            ? _formatBytes(format['filesize'] as int) 
+        fileSize: format['filesize'] != null
+            ? _formatBytes(format['filesize'] as int)
             : '',
         downloadUrl: format['url'] ?? '',
       );
     }).toList();
 
     if (qualities.isEmpty) {
-      // إذا لم توجد جودات، نستخدم رابط التحميل المباشر
       qualities.add(VideoQuality(
         label: 'أفضل جودة',
         resolution: '1080p',
         format: 'mp4',
-        fileSize: data['filesize'] != null 
-            ? _formatBytes(data['filesize'] as int) 
+        fileSize: data['filesize'] != null
+            ? _formatBytes(data['filesize'] as int)
             : '',
         downloadUrl: data['downloadUrl'] ?? data['url'] ?? '',
       ));
@@ -164,8 +273,8 @@ class VideoApiService {
       title: data['title'] as String? ?? 'فيديو من ${platform.name}',
       thumbnailUrl: data['thumbnail'] as String? ?? '',
       author: data['uploader'] as String? ?? data['channel'] as String? ?? '',
-      duration: data['duration'] != null 
-          ? Duration(seconds: data['duration'] as int) 
+      duration: data['duration'] != null
+          ? Duration(seconds: data['duration'] as int)
           : null,
       contentType: _detector.analyzeUrl(url).contentType,
       viewCount: data['view_count'] as int? ?? 0,
@@ -175,59 +284,55 @@ class VideoApiService {
     );
   }
 
-  /// بناء قائمة الجودات
+  /// بناء قائمة الجودات من بيانات Cobalt
   List<VideoQuality> _buildQualities({
     String? downloadUrl,
     String? audioUrl,
     required VideoPlatform platform,
+    Map<String, dynamic>? cobaltData,
   }) {
     final qualities = <VideoQuality>[];
 
-    // إذا لدينا رابط تحميل مباشر
     if (downloadUrl != null && downloadUrl.isNotEmpty) {
-      qualities.addAll([
-        VideoQuality(
-          label: 'أعلى جودة',
-          resolution: '1080p',
-          format: 'MP4',
-          fileSize: '~50 MB',
-          downloadUrl: downloadUrl,
-          hasAudio: true,
-        ),
-        VideoQuality(
-          label: 'HD',
-          resolution: '720p',
-          format: 'MP4',
-          fileSize: '~30 MB',
-          downloadUrl: downloadUrl,
-          hasAudio: true,
-        ),
-        VideoQuality(
-          label: 'SD',
-          resolution: '480p',
-          format: 'MP4',
-          fileSize: '~15 MB',
-          downloadUrl: downloadUrl,
-          hasAudio: true,
-        ),
-      ]);
+      // إذا كان هناك رابط تحميل فيديو
+      if (platform == VideoPlatform.youtube) {
+        // يوتيوب - عدة جودات (نستخدم نفس الرابط مع تسميات مختلفة)
+        // Cobalt يرجع أفضل جودة متاحة بناءً على videoQuality المطلوب
+        qualities.addAll([
+          VideoQuality(
+            label: 'أعلى جودة متاحة',
+            resolution: '1080p',
+            format: 'MP4',
+            fileSize: '',
+            downloadUrl: downloadUrl,
+            hasAudio: true,
+          ),
+        ]);
+      } else {
+        // باقي المنصات
+        qualities.addAll([
+          VideoQuality(
+            label: 'أعلى جودة',
+            resolution: '1080p',
+            format: 'MP4',
+            fileSize: '',
+            downloadUrl: downloadUrl,
+            hasAudio: true,
+          ),
+        ]);
+      }
     }
 
-    // إذا لدينا رابط صوتي
+    // رابط الصوت
     if (audioUrl != null && audioUrl.isNotEmpty) {
       qualities.add(VideoQuality(
         label: 'صوت فقط MP3',
         resolution: '320kbps',
         format: 'MP3',
-        fileSize: '~5 MB',
+        fileSize: '',
         downloadUrl: audioUrl,
         hasAudio: true,
       ));
-    }
-
-    // إذا لم نحصل على أي روابط، نضيف جودات فارغة مع رسالة
-    if (qualities.isEmpty) {
-      // سيتم عرض رسالة للمستخدم بتحديد الجودة
     }
 
     return qualities;
