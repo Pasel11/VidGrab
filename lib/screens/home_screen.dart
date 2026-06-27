@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/theme.dart';
 import '../config/routes.dart';
 import '../services/advanced_download_manager.dart';
@@ -263,6 +264,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Row(
             children: [
+              // زر الموقع الرسمي
+              _headerButton(Icons.public_rounded, 'الموقع', () async {
+                await launchUrl(Uri.parse('https://vidgrabapp.github.io/'), mode: LaunchMode.externalApplication);
+              }),
+              const SizedBox(width: 8),
               // زر المتصفح
               _headerButton(Icons.language_rounded, 'المتصفح', () {
                 Navigator.pushNamed(context, AppRoutes.browser);

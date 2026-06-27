@@ -46,6 +46,10 @@ dependencies:
   uuid: ^4.3.3
   intl: ^0.19.0
 
+  # ═══ Unity Ads ═══
+  # غيّر YOUR_GAME_ID في unity_ads_service.dart بعد التسجيل
+  unity_ads_plugin: ^0.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

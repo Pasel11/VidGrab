@@ -10,6 +10,7 @@ import '../services/platform_detector.dart';
 import '../services/advanced_download_manager.dart';
 import '../services/network_intelligence.dart';
 import '../services/storage_manager.dart';
+import '../services/video_api_service.dart';
 import '../models/video_info.dart';
 import '../widgets/quality_selector.dart';
 import '../widgets/video_preview_card.dart';
@@ -77,47 +78,62 @@ class _DownloadScreenState extends State<DownloadScreen> with TickerProviderStat
       return;
     }
 
-    // محاكاة جلب معلومات الفيديو
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      // ═══ استدعاء API الحقيقي ═══
+      final apiService = VideoApiService();
+      final info = await apiService.fetchVideoInfo(widget.url);
 
-    final platform = _detector.detectPlatform(widget.url);
-    final rng = Random();
+      if (info == null) {
+        setState(() {
+          _isFetching = false;
+          _errorMessage = 'لم يتم العثور على فيديو في هذا الرابط';
+        });
+        if (mounted) _showErrorSnack(_errorMessage);
+        return;
+      }
 
-    final info = VideoInfo(
-      url: widget.url,
-      platform: platform,
-      title: _generateTitle(platform, rng),
-      thumbnailUrl: 'https://picsum.photos/seed/${rng.nextInt(1000)}/400/225',
-      author: '@${platform.name.toLowerCase()}_creator',
-      duration: Duration(minutes: rng.nextInt(15) + 1, seconds: rng.nextInt(60)),
-      contentType: _analysis?.contentType ?? 'video',
-      viewCount: rng.nextInt(1000000),
-      likeCount: rng.nextInt(50000),
-      availableQualities: _getQualities(platform, rng),
-      description: 'فيديو من ${platform.name} - جودة عالية',
-    );
+      // اقتراح الجودة من الذكاء الشبكي
+      if (_analysis?.isSupported == true && info.availableQualities.isNotEmpty) {
+        try {
+          final network = Provider.of<NetworkIntelligence>(context, listen: false);
+          final bestQuality = info.availableQualities.firstWhere(
+            (q) => !q.isAudioOnly,
+            orElse: () => info.availableQualities.first,
+          );
+          _networkSuggestion = network.suggestQuality(bestQuality.fileSizeBytes);
+        } catch (_) {}
+      }
 
-    // اقتراح الجودة من الذكاء الشبكي
-    if (_analysis?.isSupported == true && info.availableQualities.isNotEmpty) {
-      try {
-        final network = Provider.of<NetworkIntelligence>(context, listen: false);
-        final bestQuality = info.availableQualities.firstWhere(
-          (q) => !q.isAudioOnly,
-          orElse: () => info.availableQualities.first,
-        );
-        _networkSuggestion = network.suggestQuality(bestQuality.fileSizeBytes);
-      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _videoInfo = info;
+          _selectedQuality = info.availableQualities.isNotEmpty
+              ? info.availableQualities.first
+              : null;
+          _showQualities = info.availableQualities.isNotEmpty;
+          _isFetching = false;
+        });
+        _scaleController.forward();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isFetching = false;
+          _errorMessage = 'خطأ في جلب الفيديو: ${_extractErrorMessage(e)}';
+        });
+        _showErrorSnack(_errorMessage);
+      }
     }
+  }
 
-    if (mounted) {
-      setState(() {
-        _videoInfo = info;
-        _selectedQuality = info.availableQualities.first;
-        _showQualities = true;
-        _isFetching = false;
-      });
-      _scaleController.forward();
-    }
+  String _extractErrorMessage(dynamic error) {
+    final msg = error.toString();
+    if (msg.contains('404')) return 'الرابط غير صالح أو الفيديو محذوف';
+    if (msg.contains('403')) return 'الفيديو محمي ولا يمكن تحميله';
+    if (msg.contains('429')) return 'طلبات كثيرة، انتظر قليلاً';
+    if (msg.contains('timeout')) return 'انتهت مهلة الاتصال';
+    if (msg.contains('SocketException')) return 'لا يوجد اتصال بالإنترنت';
+    return 'حدث خطأ غير متوقع';
   }
 
   String _generateTitle(VideoPlatform platform, Random rng) {

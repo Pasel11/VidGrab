@@ -13,6 +13,7 @@ import 'services/haptic_service.dart';
 import 'services/clipboard_watcher.dart';
 import 'services/network_intelligence.dart';
 import 'services/storage_manager.dart';
+import 'services/unity_ads_service.dart';
 import 'models/app_database.dart';
 
 void main() async {
@@ -54,6 +55,9 @@ void main() async {
     storageManager: storageManager,
   );
   await downloadManager.init();
+
+  // ═══ تهيئة Unity Ads ═══
+  UnityAdsService.initialize();
 
   final conversionService = MediaConversionService();
 
