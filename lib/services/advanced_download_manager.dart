@@ -336,8 +336,8 @@ class AdvancedDownloadManager extends ChangeNotifier {
     await _notifications.show(
       task.id.hashCode,
       'جارٍ التحميل... $progress%',
-      '${task.title}\n$_speed | متبقي: $eta',
-      const NotificationDetails(
+      '${task.title}\n$eta',
+      NotificationDetails(
         android: AndroidNotificationDetails(
           'download_progress', 'تقدم التحميل',
           importance: Importance.low,
@@ -350,7 +350,7 @@ class AdvancedDownloadManager extends ChangeNotifier {
           icon: '@mipmap/ic_launcher',
           indeterminate: false,
         ),
-        iOS: DarwinNotificationDetails(),
+        iOS: const DarwinNotificationDetails(),
       ),
     );
   }

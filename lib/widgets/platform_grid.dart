@@ -65,6 +65,14 @@ class _PlatformItem extends StatelessWidget {
       case VideoPlatform.tumblr: return Icons.article_rounded;
       case VideoPlatform.vimeo: return Icons.video_library_rounded;
       case VideoPlatform.dailymotion: return Icons.tv_rounded;
+      case VideoPlatform.twitch: return Icons.live_tv_rounded;
+      case VideoPlatform.soundcloud: return Icons.headphones_rounded;
+      case VideoPlatform.whatsapp: return Icons.chat_rounded;
+      case VideoPlatform.telegram: return Icons.send_rounded;
+      case VideoPlatform.likee: return Icons.star_rounded;
+      case VideoPlatform.rumble: return Icons.videocam_rounded;
+      case VideoPlatform.bilibili: return Icons.tv_rounded;
+      case VideoPlatform.streamable: return Icons.play_circle_outline_rounded;
       case VideoPlatform.unknown: return Icons.language_rounded;
     }
   }

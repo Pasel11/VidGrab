@@ -49,9 +49,9 @@ enum VideoPlatform {
       case VideoPlatform.whatsapp: return Icons.chat_rounded;
       case VideoPlatform.telegram: return Icons.send_rounded;
       case VideoPlatform.likee: return Icons.star_rounded;
-      case VideoPlatform.rumble: return Icons.sensors_rounded;
+      case VideoPlatform.rumble: return Icons.videocam_rounded;
       case VideoPlatform.bilibili: return Icons.tv_rounded;
-      case VideoPlatform.streamable: return Icons.stream_rounded;
+      case VideoPlatform.streamable: return Icons.play_circle_outline_rounded;
       case VideoPlatform.unknown: return Icons.video_file_rounded;
     }
   }

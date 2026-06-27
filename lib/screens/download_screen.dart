@@ -518,7 +518,7 @@ class _DownloadScreenState extends State<DownloadScreen> with TickerProviderStat
             onPressed: () {
               Clipboard.setData(ClipboardData(text: widget.url));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم نسخ الرابط'), backgroundColor: AppTheme.cardDark, behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                SnackBar(content: const Text('تم نسخ الرابط'), backgroundColor: AppTheme.cardDark, behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               );
             },
             icon: const Icon(Icons.copy_rounded, size: 16, color: AppTheme.textSecondary),

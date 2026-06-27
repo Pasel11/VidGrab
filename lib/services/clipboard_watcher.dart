@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'platform_detector.dart';
+import '../models/video_info.dart';
 
 /// خدمة مراقبة الحافظة الذكية
 /// تكشف تلقائياً روابط الفيديو عند لصقها أو فتح التطبيق
