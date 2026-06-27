@@ -1,0 +1,51 @@
+name: 🚀 Build VidGrab APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 🤖 Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+
+      - name: 📦 Get Dependencies
+        run: flutter pub get
+
+      - name: 🏗️ Build APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: 📤 Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidgrab-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 90
+
+      - name: 🚀 Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v3.0.0
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

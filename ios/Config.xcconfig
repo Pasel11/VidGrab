@@ -1,0 +1,3 @@
+# VidGrab iOS Build Configuration
+run_iphone_simulator="iPhone 15 Pro"
+run_ipad_simulator="iPad Pro (12.9-inch) (6th generation)"
